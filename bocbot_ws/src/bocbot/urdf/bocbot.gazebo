@@ -25,8 +25,8 @@
       <right_joint>mid_right_wheel_joint</right_joint>
       <right_joint>back_right_wheel_joint</right_joint>
 
-      <!-- Distances will be adjusted to match new geometry -->
-      <wheel_separation>0.4</wheel_separation>
+      <!-- Distances adjusted to match new geometry (y offsets) -->
+      <wheel_separation>0.38</wheel_separation>
       <wheel_diameter>0.15</wheel_diameter>
 
       <robot_base_frame>robot_footprint</robot_base_frame>
