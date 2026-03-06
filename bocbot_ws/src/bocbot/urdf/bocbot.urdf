@@ -23,10 +23,11 @@
       <right_joint>mid_right_wheel_joint</right_joint>
       <right_joint>back_right_wheel_joint</right_joint>
       <!-- Wheel separation and diameter for the scaled model -->
-      <wheel_separation>1.16</wheel_separation>
-      <wheel_diameter>0.45</wheel_diameter>
+      <wheel_separation>1.7</wheel_separation>
+      <wheel_diameter>0.75</wheel_diameter>
       <robot_base_frame>robot_footprint</robot_base_frame>
-      <max_wheel_torque>5000</max_wheel_torque>
+      <max_wheel_torque>50</max_wheel_torque>
+      <max_wheel_acceleration>5.0</max_wheel_acceleration>
       <publish_odom>true</publish_odom>
       <publish_odom_tf>true</publish_odom_tf>
       <publish_wheel_tf>true</publish_wheel_tf>
@@ -170,7 +171,7 @@
     <collision name="collision">
       <origin rpy=" 0 0 0" xyz="0 0 0"/>
       <geometry>
-        <box size="1.2 0.8 0.4"/>
+        <box size="1.5 1.0 0.6"/>
       </geometry>
     </collision>
     <visual name="chassis_visual">
