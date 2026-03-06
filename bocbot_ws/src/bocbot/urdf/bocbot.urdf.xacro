@@ -78,6 +78,7 @@
       <!-- Optimized for massive rover turning -->
       <mu1>1.5</mu1>
       <mu2>0.02</mu2> <!-- Almost zero lateral friction to allow easy pivot -->
+      <fdir1>1 0 0</fdir1> <!-- Align primary friction with wheel roll direction -->
       <kp>1000000.0</kp>
       <kd>100.0</kd>
     </gazebo>
@@ -100,6 +101,7 @@
       <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.5" iyz="0" izz="0.5" />
     </inertial>
     <visual><origin xyz="0.25 0 0"/><geometry><box size="1.7 0.2 0.2"/></geometry></visual>
+    <collision><origin xyz="0.25 0 0"/><geometry><box size="1.7 0.2 0.2"/></geometry></collision>
   </link>
   <gazebo reference="left_rocker_arm"><material>Gazebo/DarkGrey</material></gazebo>
 
@@ -122,6 +124,7 @@
       <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.3" iyz="0" izz="0.3" />
     </inertial>
     <visual><origin xyz="0 0 0"/><geometry><box size="1.2 0.2 0.2"/></geometry></visual>
+    <collision><origin xyz="0 0 0"/><geometry><box size="1.2 0.2 0.2"/></geometry></collision>
   </link>
   <gazebo reference="left_bogie_link"><material>Gazebo/DarkGrey</material></gazebo>
 
@@ -148,6 +151,7 @@
       <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.5" iyz="0" izz="0.5" />
     </inertial>
     <visual><origin xyz="0.25 0 0"/><geometry><box size="1.7 0.2 0.2"/></geometry></visual>
+    <collision><origin xyz="0.25 0 0"/><geometry><box size="1.7 0.2 0.2"/></geometry></collision>
   </link>
   <gazebo reference="right_rocker_arm"><material>Gazebo/DarkGrey</material></gazebo>
 
@@ -170,6 +174,7 @@
       <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.3" iyz="0" izz="0.3" />
     </inertial>
     <visual><origin xyz="0 0 0"/><geometry><box size="1.2 0.2 0.2"/></geometry></visual>
+    <collision><origin xyz="0 0 0"/><geometry><box size="1.2 0.2 0.2"/></geometry></collision>
   </link>
   <gazebo reference="right_bogie_link"><material>Gazebo/DarkGrey</material></gazebo>
 

@@ -1,7 +1,7 @@
 FROM osrf/ros:eloquent-desktop
 
 # Install additional required packages
-RUN apt-get update && apt-get install -y ros-eloquent-gazebo-ros-pkgs ros-eloquent-teleop-twist-keyboard ros-eloquent-xacro xterm sudo && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ros-eloquent-gazebo-ros-pkgs ros-eloquent-teleop-twist-keyboard ros-eloquent-xacro xterm sudo python3-pynput && rm -rf /var/lib/apt/lists/*
 
 # Add user matching host user to avoid permission issues with mounted volumes
 ARG UID=1000

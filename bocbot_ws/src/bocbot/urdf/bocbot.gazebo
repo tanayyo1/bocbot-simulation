@@ -27,7 +27,7 @@
       <wheel_separation>1.7</wheel_separation>
       <wheel_diameter>0.75</wheel_diameter>
 
-      <robot_base_frame>robot_footprint</robot_base_frame>
+      <robot_base_frame>base_link</robot_base_frame>
       <max_wheel_torque>50</max_wheel_torque>
 
       <publish_odom>true</publish_odom>
