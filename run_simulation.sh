@@ -1,12 +1,24 @@
 #!/bin/bash
 
+set -euo pipefail
+
 # Allow local X11 connections for GUI apps (Gazebo)
 xhost +local:
 
+docker_args=(
+    -it
+    --rm
+    --name bocbot_container
+    --net host
+    --env DISPLAY
+    --env QT_X11_NO_MITSHM=1
+    --volume /tmp/.X11-unix:/tmp/.X11-unix:rw
+    --volume "$PWD/bocbot_ws:/home/dipz/robot_proj/bocbot_ws:rw"
+)
+
 # Check for GPU device
-DRI_FLAG=""
 if [ -e /dev/dri ]; then
-    DRI_FLAG="--device=/dev/dri:/dev/dri"
+    docker_args+=(--device /dev/dri:/dev/dri)
 fi
 
 # Build the docker image
@@ -16,9 +28,18 @@ docker build -t bocbot_env -f Dockerfile .
 # Run the docker container with X11 forwarding and current directory mounted
 echo "Starting the Docker container..."
 if [ $# -eq 0 ]; then
-    # No arguments, drop to bash
-    docker run -it --rm --name bocbot_container --net host $DRI_FLAG --env="DISPLAY" --env="QT_X11_NO_MITSHM=1" --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" --volume="$PWD/bocbot_ws:/home/dipz/robot_proj/bocbot_ws:rw" bocbot_env bash -c "source /opt/ros/eloquent/setup.bash && colcon build && source install/setup.bash && echo 'Workspace built successfully!' && echo 'To launch the simulation, run: ros2 launch bocbot world.launch.py' && bash"
+    docker run "${docker_args[@]}" bocbot_env bash -lc \
+        "source /opt/ros/eloquent/setup.bash && \
+        colcon build && \
+        source install/setup.bash && \
+        echo 'Workspace built successfully!' && \
+        echo 'To launch the simulation, run: ros2 launch bocbot world.launch.py' && \
+        exec bash"
 else
-    # Execute the command passed as arguments
-    docker run -it --rm --name bocbot_container --net host $DRI_FLAG --env="DISPLAY" --env="QT_X11_NO_MITSHM=1" --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" --volume="$PWD/bocbot_ws:/home/dipz/robot_proj/bocbot_ws:rw" bocbot_env bash -c "source /opt/ros/eloquent/setup.bash && colcon build && source install/setup.bash && $@"
+    docker run "${docker_args[@]}" bocbot_env bash -lc \
+        'source /opt/ros/eloquent/setup.bash && \
+        colcon build && \
+        source install/setup.bash && \
+        exec "$@"' \
+        bash "$@"
 fi

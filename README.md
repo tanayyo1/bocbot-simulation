@@ -6,9 +6,9 @@ Because modern host machines no longer natively support ROS 2 Eloquent or Gazebo
 
 ## 🚀 Features
 - **Containerized Environment:** Fully isolated `osrf/ros:eloquent-desktop` environment.
-- **Custom Physics Model:** A 4-wheel skid-steer robot model generated via Xacro/URDF with integrated camera and LiDAR (Hokuyo) sensors.
+- **Custom Physics Model:** A 6-wheel rocker-bogie skid-steer rover generated via Xacro/URDF with integrated camera, LiDAR (Hokuyo), and IMU sensors.
 - **Office Environment:** A custom 3D office world mapped out in Gazebo.
-- **Gaming-style RC Controller:** A custom-built, ultra-smooth WASD python teleop script featuring simultaneous key inputs, acceleration/deceleration ramps, and instant teleport resets.
+- **Gaming-style RC Controller:** A custom-built WASD teleop script with real held-key tracking over X11, acceleration/deceleration ramps, pivot turns, startup diagnostics, and instant teleport resets.
 
 ---
 
@@ -38,7 +38,7 @@ When the simulation launches, a small black terminal window titled **"Robot Cont
 Click inside that window and use your keyboard to drive:
 * **W** - Accelerate Forward
 * **S** - Reverse
-* **A / D** - Steer Left / Steer Right (Can be combined with W or S!)
+* **A / D** - Steer Left / Steer Right (supports `W+A` / `W+D` under the default Docker + X11 setup)
 * **R** - Rescue/Reset (Instantly teleports the robot back to the starting point if you get stuck or flip over).
 * **Q / E** - Pivot in place.
 

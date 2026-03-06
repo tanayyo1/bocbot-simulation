@@ -25,7 +25,7 @@
       <!-- Wheel separation and diameter for the scaled model -->
       <wheel_separation>1.7</wheel_separation>
       <wheel_diameter>0.75</wheel_diameter>
-      <robot_base_frame>robot_footprint</robot_base_frame>
+      <robot_base_frame>base_link</robot_base_frame>
       <max_wheel_torque>50</max_wheel_torque>
       <publish_odom>true</publish_odom>
       <publish_odom_tf>true</publish_odom_tf>
@@ -242,6 +242,12 @@
         <box size="1.7 0.2 0.2"/>
       </geometry>
     </visual>
+    <collision>
+      <origin xyz="0.25 0 0"/>
+      <geometry>
+        <box size="1.7 0.2 0.2"/>
+      </geometry>
+    </collision>
   </link>
   <gazebo reference="left_rocker_arm">
     <material>Gazebo/DarkGrey</material>
@@ -279,6 +285,7 @@
     <!-- Optimized for massive rover turning -->
     <mu1>1.5</mu1>
     <mu2>0.02</mu2>
+    <fdir1>1 0 0</fdir1>
     <!-- Almost zero lateral friction to allow easy pivot -->
     <kp>1000000.0</kp>
     <kd>100.0</kd>
@@ -302,6 +309,12 @@
         <box size="1.2 0.2 0.2"/>
       </geometry>
     </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <box size="1.2 0.2 0.2"/>
+      </geometry>
+    </collision>
   </link>
   <gazebo reference="left_bogie_link">
     <material>Gazebo/DarkGrey</material>
@@ -339,6 +352,7 @@
     <!-- Optimized for massive rover turning -->
     <mu1>1.5</mu1>
     <mu2>0.02</mu2>
+    <fdir1>1 0 0</fdir1>
     <!-- Almost zero lateral friction to allow easy pivot -->
     <kp>1000000.0</kp>
     <kd>100.0</kd>
@@ -375,6 +389,7 @@
     <!-- Optimized for massive rover turning -->
     <mu1>1.5</mu1>
     <mu2>0.02</mu2>
+    <fdir1>1 0 0</fdir1>
     <!-- Almost zero lateral friction to allow easy pivot -->
     <kp>1000000.0</kp>
     <kd>100.0</kd>
@@ -401,6 +416,12 @@
         <box size="1.7 0.2 0.2"/>
       </geometry>
     </visual>
+    <collision>
+      <origin xyz="0.25 0 0"/>
+      <geometry>
+        <box size="1.7 0.2 0.2"/>
+      </geometry>
+    </collision>
   </link>
   <gazebo reference="right_rocker_arm">
     <material>Gazebo/DarkGrey</material>
@@ -438,6 +459,7 @@
     <!-- Optimized for massive rover turning -->
     <mu1>1.5</mu1>
     <mu2>0.02</mu2>
+    <fdir1>1 0 0</fdir1>
     <!-- Almost zero lateral friction to allow easy pivot -->
     <kp>1000000.0</kp>
     <kd>100.0</kd>
@@ -461,6 +483,12 @@
         <box size="1.2 0.2 0.2"/>
       </geometry>
     </visual>
+    <collision>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <box size="1.2 0.2 0.2"/>
+      </geometry>
+    </collision>
   </link>
   <gazebo reference="right_bogie_link">
     <material>Gazebo/DarkGrey</material>
@@ -498,6 +526,7 @@
     <!-- Optimized for massive rover turning -->
     <mu1>1.5</mu1>
     <mu2>0.02</mu2>
+    <fdir1>1 0 0</fdir1>
     <!-- Almost zero lateral friction to allow easy pivot -->
     <kp>1000000.0</kp>
     <kd>100.0</kd>
@@ -534,6 +563,7 @@
     <!-- Optimized for massive rover turning -->
     <mu1>1.5</mu1>
     <mu2>0.02</mu2>
+    <fdir1>1 0 0</fdir1>
     <!-- Almost zero lateral friction to allow easy pivot -->
     <kp>1000000.0</kp>
     <kd>100.0</kd>
