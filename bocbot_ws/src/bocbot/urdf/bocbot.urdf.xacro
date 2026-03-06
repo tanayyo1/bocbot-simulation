@@ -24,7 +24,7 @@
     </inertial>
     <collision name='collision'>
       <origin xyz="0 0 0" rpy=" 0 0 0"/>
-      <geometry><box size="1.2 0.8 0.4"/></geometry>
+      <geometry><box size="1.5 1.0 0.6"/></geometry>
     </collision>
     <visual name='chassis_visual'>
       <origin xyz="0 0 0" rpy=" 0 0 0"/>
