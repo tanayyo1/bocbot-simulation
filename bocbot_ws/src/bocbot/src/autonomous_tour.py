@@ -21,8 +21,9 @@ import time
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import LaserScan
 
 
 # =============================================================================
@@ -113,6 +114,10 @@ def smoothstep(x):
     """Hermite smoothstep [0,1] with zero derivative at endpoints."""
     x = max(0.0, min(1.0, x))
     return x * x * (3.0 - 2.0 * x)
+
+
+def clamp(value, min_value, max_value):
+    return max(min_value, min(max_value, value))
 
 
 # =============================================================================
@@ -284,22 +289,61 @@ class TourNode(Node):
     # -- Timing --
     ROOM_PAUSE = 3.0     # seconds to hold at each room
     STAB_TIME  = 0.4     # stabilisation hold in ARRIVE before advancing
+    SCAN_TIMEOUT = 0.75   # seconds
+    MAP_PERIOD = 0.8      # seconds between local map publishes
 
     # -- Stuck detection --
-    STUCK_TIME = 8.0     # seconds without meaningful movement
-    STUCK_DIST = 0.15    # minimum displacement to reset stuck timer
+    STUCK_TIME = 1.6     # seconds without meaningful movement
+    STUCK_DIST = 0.035   # minimum displacement to reset stuck timer
+
+    # -- Obstacle handling --
+    FRONT_STOP = 0.55
+    FRONT_SLOW = 1.05
+    SIDE_WARN = 0.85
+    SIDE_CRITICAL = 0.55
+    AVOID_GAIN = 2.4
+    OBSTACLE_TURN_GAIN = 1.1
+    RECOVERY_BACKUP = -0.30
+    RECOVERY_BACKUP_TIME = 0.9
+    RECOVERY_TURN_TIME = 1.0
+    RECOVERY_TURN_SPEED = 0.9
 
     def __init__(self):
         super().__init__('autonomous_tour')
 
         self.pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.map_pub = self.create_publisher(OccupancyGrid, '/bocbot/local_map', 1)
         self.create_subscription(
             Odometry, '/odom', self._odom_cb, qos_profile=qos_profile_sensor_data)
+        self.create_subscription(
+            LaserScan, '/bocbot/scan', self._scan_cb, qos_profile_sensor_data)
 
         # Odometry state
         self.x = self.y = self.yaw = 0.0
         self.odom_ok = False
         self._odom_t = 0.0
+        self.scan = None
+        self.scan_received = False
+        self.scan_time = None
+
+        # Local occupancy map
+        self.map_resolution = 0.15
+        self.map_width = int(30.0 / self.map_resolution)
+        self.map_height = int(40.0 / self.map_resolution)
+        self.map_origin_x = -15.0
+        self.map_origin_y = -0.5
+        self.map_data = [-1] * (self.map_width * self.map_height)
+        self.last_map_publish = time.monotonic() - self.MAP_PERIOD
+
+        # Movement watchdog
+        self.last_progress_time = time.monotonic()
+        self.last_progress_x = self.x
+        self.last_progress_y = self.y
+        self.no_progress_time = 0.0
+        self._last_status = 0.0
+        self._last_scan_status = 0.0
+        self._recovery_start = 0.0
+        self._recovery_turn = 1.0
 
         # Waypoint list
         self.wps = build_tour()
@@ -316,10 +360,6 @@ class TourNode(Node):
         self.last_t = time.monotonic()
         self.last_log_t = 0.0
         self.tour_start = 0.0   # set when first odom arrives
-
-        # Stuck detector
-        self._sk_x = self._sk_y = 0.0
-        self._sk_t = time.monotonic()
 
         # Bridge section tracking for log transitions
         self._in_bridge = False
@@ -342,21 +382,36 @@ class TourNode(Node):
         if not self.odom_ok:
             self.odom_ok = True
             self.tour_start = time.monotonic()
+            self.last_progress_time = self._odom_t
+            self.last_progress_x = self.x
+            self.last_progress_y = self.y
             self.get_logger().info(
                 f'Odom locked: ({self.x:.2f}, {self.y:.2f}) '
                 f'yaw={math.degrees(self.yaw):.1f} deg')
 
     # -- Main control loop --
 
+    def _scan_cb(self, msg):
+        self.scan = msg
+        self.scan_received = True
+        self.scan_time = time.monotonic()
+        self._update_local_map(msg)
+
     def _tick(self):
         now = time.monotonic()
         dt = now - self.last_t
         self.last_t = now
+        scan_fresh = self._scan_fresh(now)
 
         if not self.odom_ok:
             self.get_logger().info(
                 'Waiting for /odom ...', throttle_duration_sec=2.0)
             return
+
+        if not scan_fresh and now - self._last_scan_status >= 2.0:
+            self.get_logger().warn(
+                'Lidar stale / unavailable. Continuing with reduced autonomy.')
+            self._last_scan_status = now
 
         # Odom watchdog
         if now - self._odom_t > 1.0:
@@ -364,6 +419,10 @@ class TourNode(Node):
                 'Odom stale (>1s) — holding', throttle_duration_sec=2.0)
             self._stop(dt)
             return
+
+        if now - self.last_map_publish >= self.MAP_PERIOD:
+            self._publish_local_map()
+            self.last_map_publish = now
 
         # Tour finished?
         if self.wi >= len(self.wps):
@@ -381,6 +440,14 @@ class TourNode(Node):
         atol = self.ALIGN_OK_BR if tag in BRIDGE_TAGS else self.ALIGN_OK
         vmax = self._vmax(tag)
         self._apply_gains(tag)
+        if scan_fresh:
+            front_clear = self._scan_sector_min(-0.28, 0.28)
+            left_clear = self._scan_sector_min(0.28, 1.22)
+            right_clear = self._scan_sector_min(-1.22, -0.28)
+        else:
+            front_clear = float('inf')
+            left_clear = float('inf')
+            right_clear = float('inf')
 
         # Bridge transition logging
         on_bridge = tag in BRIDGE_TAGS
@@ -391,17 +458,17 @@ class TourNode(Node):
             self._in_bridge = False
             self.get_logger().info('--- EXITED BRIDGE SECTION ---')
 
-        # Stuck detection (ALIGN / DRIVE only)
-        if self.state in ('ALIGN', 'DRIVE'):
-            moved = math.hypot(self.x - self._sk_x, self.y - self._sk_y)
-            if moved > self.STUCK_DIST:
-                self._sk_x, self._sk_y = self.x, self.y
-                self._sk_t = now
-            elif now - self._sk_t > self.STUCK_TIME:
+        if self.state == 'BACKUP':
+            self._execute_recovery(now)
+            return
+
+        if self.state in ('ALIGN', 'DRIVE') and scan_fresh and front_clear < self.FRONT_STOP:
+            if now - self._last_status >= 2.0:
                 self.get_logger().warn(
-                    f'STUCK {self.STUCK_TIME:.0f}s at ({self.x:.1f},{self.y:.1f}) '
-                    f'target={name} d={dist:.2f}m')
-                self._sk_t = now
+                    'Obstacle too close ahead; attempting recovery')
+                self._last_status = now
+            self._start_recovery(front_clear, left_clear, right_clear)
+            return
 
         # ---- State machine ----
 
@@ -414,12 +481,31 @@ class TourNode(Node):
                 self._go('DRIVE')
             else:
                 w_cmd = self.apid(herr, dt)
+                w_cmd += self._avoid_turn(left_clear, right_clear, front_clear)
                 _, wo = self.prof(0.0, w_cmd, dt)
                 self._cmd(0.0, wo)
 
         elif self.state == 'DRIVE':
             if dist < tol:
                 self._go('ARRIVE')
+                return
+
+            if not scan_fresh:
+                if now - self._last_status >= 1.0:
+                    self.get_logger().warn(
+                        'Lidar stale / unavailable. Holding linear speed at 0 m/s.')
+                    self._last_status = now
+                rw = self.apid(herr, dt)
+                vo, wo = self.prof(0.0, rw, dt)
+                self._cmd(0.0, wo)
+                if now - self.last_log_t > 2.0:
+                    self.last_log_t = now
+                    elapsed = now - self.tour_start
+                    self.get_logger().info(
+                        f'  [{self.wi+1}/{len(self.wps)}] {name} (no lidar): '
+                        f'd={dist:.2f}m h={math.degrees(herr):.1f}deg '
+                        f'v={vo:.2f} w={wo:.2f}  T+{elapsed:.0f}s')
+                self._check_progress(now, 0.0, left_clear, right_clear)
                 return
 
             # Re-align on large heading drift (skip on bridge stairs)
@@ -435,13 +521,22 @@ class TourNode(Node):
             if dist < self.DECEL_R:
                 rv *= smoothstep(dist / self.DECEL_R)
             rv = max(self.V_MIN, min(vmax, rv))
+            if front_clear <= self.FRONT_SLOW:
+                rv *= 0.25
+            elif front_clear < 1.5:
+                rv *= clamp((front_clear - self.FRONT_STOP) / (1.5 - self.FRONT_STOP), 0.35, 1.0)
 
             # Angular PID on heading error
             rw = self.apid(herr, dt)
+            rw += self._avoid_turn(left_clear, right_clear, front_clear)
+
+            if dist <= 2.5:
+                rv *= clamp(0.7 + 0.3 * (dist / 2.5), 0.25, 1.0)
 
             # Profiled output
             vo, wo = self.prof(rv, rw, dt)
             self._cmd(vo, wo)
+            self._check_progress(now, vo, left_clear, right_clear)
 
             # Periodic status log
             if now - self.last_log_t > 2.0:
@@ -450,7 +545,9 @@ class TourNode(Node):
                 self.get_logger().info(
                     f'  [{self.wi+1}/{len(self.wps)}] {name}: '
                     f'd={dist:.2f}m h={math.degrees(herr):.1f}deg '
-                    f'v={vo:.2f} w={wo:.2f}  T+{elapsed:.0f}s')
+                    f'v={vo:.2f} w={wo:.2f} front={front_clear:.2f} '
+                    f'left={left_clear:.2f} right={right_clear:.2f}  '
+                    f'T+{elapsed:.0f}s')
 
         elif self.state == 'ARRIVE':
             vo, wo = self.prof.stop(dt)
@@ -488,8 +585,10 @@ class TourNode(Node):
         self.lpid.reset()
         self.apid.reset()
         self.prof.reset()
-        self._sk_x, self._sk_y = self.x, self.y
-        self._sk_t = time.monotonic()
+        self.no_progress_time = 0.0
+        self.last_progress_time = time.monotonic()
+        self.last_progress_x = self.x
+        self.last_progress_y = self.y
         if self.wi >= len(self.wps):
             elapsed = time.monotonic() - self.tour_start
             self.get_logger().info('=' * 50)
@@ -550,6 +649,167 @@ class TourNode(Node):
         if abs(v) < 0.005 and abs(w) < 0.005:
             v = w = 0.0
         self._cmd(v, w)
+
+    # -- Perception and safety helpers --
+
+    def _scan_fresh(self, now):
+        return (
+            self.scan_received
+            and self.scan is not None
+            and self.scan_time is not None
+            and now - self.scan_time <= self.SCAN_TIMEOUT
+        )
+
+    def _scan_sector_min(self, sector_start, sector_end):
+        if self.scan is None:
+            return float('inf')
+
+        scan = self.scan
+        if scan.angle_increment <= 0.0:
+            return float('inf')
+
+        start = max(sector_start, scan.angle_min)
+        end = min(sector_end, scan.angle_max)
+        if start >= end:
+            return float('inf')
+
+        i_start = int((start - scan.angle_min) / scan.angle_increment)
+        i_end = int((end - scan.angle_min) / scan.angle_increment)
+        i_start = max(0, min(i_start, len(scan.ranges) - 1))
+        i_end = max(0, min(i_end, len(scan.ranges) - 1))
+        if i_start > i_end:
+            i_start, i_end = i_end, i_start
+
+        best = float('inf')
+        for i in range(i_start, i_end + 1):
+            range_m = scan.ranges[i]
+            if not math.isfinite(range_m):
+                continue
+            if range_m < scan.range_min or range_m > scan.range_max:
+                continue
+            best = min(best, range_m)
+        return best
+
+    def _avoid_turn(self, left_clear, right_clear, front_clear):
+        if self.scan is None or not self._scan_fresh(time.monotonic()):
+            return 0.0
+
+        left_blocked = left_clear < self.SIDE_WARN
+        right_blocked = right_clear < self.SIDE_WARN
+        if not left_blocked and not right_blocked:
+            return 0.0
+
+        diff = right_clear - left_clear
+        lateral = clamp(diff / max(self.SIDE_WARN, 0.01), -1.0, 1.0)
+        if min(left_clear, right_clear) < self.SIDE_CRITICAL:
+            turn = self.AVOID_GAIN * (1.0 if diff >= 0 else -1.0)
+        else:
+            turn = self.OBSTACLE_TURN_GAIN * (-lateral)
+
+        if front_clear < 1.1 and not (left_blocked and right_blocked):
+            turn *= 1.4
+
+        return clamp(turn, -self.W_MAX, self.W_MAX)
+
+    def _start_recovery(self, front_clear, left_clear, right_clear):
+        self.state = 'BACKUP'
+        self._recovery_start = time.monotonic()
+        self.no_progress_time = 0.0
+        self.last_progress_time = self._recovery_start
+        self.last_progress_x = self.x
+        self.last_progress_y = self.y
+        self._recovery_turn = 1.0 if left_clear > right_clear else -1.0
+        self.prof.reset()
+        self.get_logger().warn(
+            f'Recovery triggered: front={front_clear:.2f}, left={left_clear:.2f}, right={right_clear:.2f}'
+        )
+
+    def _execute_recovery(self, now):
+        elapsed = now - self._recovery_start
+        if elapsed <= self.RECOVERY_BACKUP_TIME:
+            self._cmd(self.RECOVERY_BACKUP, 0.0)
+            return
+        if elapsed <= self.RECOVERY_BACKUP_TIME + self.RECOVERY_TURN_TIME:
+            self._cmd(0.0, self.RECOVERY_TURN_SPEED * self._recovery_turn)
+            return
+
+        self.get_logger().info('Recovery finished, resuming alignment.')
+        self._go('ALIGN')
+        self.no_progress_time = 0.0
+        self.last_progress_time = now
+        self.last_progress_x = self.x
+        self.last_progress_y = self.y
+
+    def _check_progress(self, now, speed, left_clear, right_clear):
+        dt = now - self.last_progress_time
+        if dt <= 0.0:
+            return
+
+        moved = math.hypot(self.x - self.last_progress_x, self.y - self.last_progress_y)
+        moving_intent = abs(speed) > 0.08
+
+        if moving_intent and moved < self.STUCK_DIST:
+            self.no_progress_time += dt
+            if self.no_progress_time > self.STUCK_TIME:
+                self._start_recovery(front_clear=10.0, left_clear=left_clear, right_clear=right_clear)
+                return
+        else:
+            self.no_progress_time = 0.0
+
+        if dt >= self.STUCK_TIME:
+            self.last_progress_time = now
+            self.last_progress_x = self.x
+            self.last_progress_y = self.y
+
+    def _publish_local_map(self):
+        msg = OccupancyGrid()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'map'
+        msg.info.resolution = self.map_resolution
+        msg.info.width = self.map_width
+        msg.info.height = self.map_height
+        msg.info.origin.position.x = self.map_origin_x
+        msg.info.origin.position.y = self.map_origin_y
+        msg.info.origin.orientation.w = 1.0
+        msg.data = list(self.map_data)
+        self.map_pub.publish(msg)
+
+    def _update_local_map(self, scan):
+        if not self.odom_ok:
+            return
+
+        for i, range_m in enumerate(scan.ranges):
+            if not math.isfinite(range_m):
+                continue
+            if range_m < scan.range_min or range_m > min(scan.range_max, 30.0):
+                continue
+
+            a = scan.angle_min + i * scan.angle_increment
+            local_x = range_m * math.cos(a)
+            local_y = range_m * math.sin(a)
+            world_x = (self.x + local_x * math.cos(self.yaw) - local_y * math.sin(self.yaw))
+            world_y = (self.y + local_x * math.sin(self.yaw) + local_y * math.cos(self.yaw))
+
+            mx = int((world_x - self.map_origin_x) / self.map_resolution)
+            my = int((world_y - self.map_origin_y) / self.map_resolution)
+            if 0 <= mx < self.map_width and 0 <= my < self.map_height:
+                self._set_map_cell(mx, my, 100)
+                for y in (my - 1, my, my + 1):
+                    for x in (mx - 1, mx, mx + 1):
+                        self._set_map_cell(x, y, 100)
+
+        robot_mx = int((self.x - self.map_origin_x) / self.map_resolution)
+        robot_my = int((self.y - self.map_origin_y) / self.map_resolution)
+        if 0 <= robot_mx < self.map_width and 0 <= robot_my < self.map_height:
+            self._set_map_cell(robot_mx, robot_my, 0)
+            for y in (robot_my - 1, robot_my, robot_my + 1):
+                for x in (robot_mx - 1, robot_mx, robot_mx + 1):
+                    self._set_map_cell(x, y, 0)
+
+    def _set_map_cell(self, mx, my, value):
+        if 0 <= mx < self.map_width and 0 <= my < self.map_height:
+            idx = my * self.map_width + mx
+            self.map_data[idx] = value
 
 
 # =============================================================================
