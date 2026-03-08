@@ -410,7 +410,7 @@ class TourNode(Node):
 
         if not scan_fresh and now - self._last_scan_status >= 2.0:
             self.get_logger().warn(
-                'Lidar stale / unavailable. Continuing with reduced autonomy.')
+                'Lidar stale / unavailable: holding linear speed at 0 m/s and using reduced autonomy.')
             self._last_scan_status = now
 
         # Odom watchdog
@@ -491,10 +491,6 @@ class TourNode(Node):
                 return
 
             if not scan_fresh:
-                if now - self._last_status >= 1.0:
-                    self.get_logger().warn(
-                        'Lidar stale / unavailable. Holding linear speed at 0 m/s.')
-                    self._last_status = now
                 rw = self.apid(herr, dt)
                 vo, wo = self.prof(0.0, rw, dt)
                 self._cmd(0.0, wo)
